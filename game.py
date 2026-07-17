@@ -1,9 +1,9 @@
 """
 Geo-Aware Flight Trivia Game using tkinter.
 
-This script runs a desktop trivia game that dynamically selects questions 
-based on the user's chosen flight destination. It tracks session statistics 
-and saves them to a local JSON file for long-term storage.
+This script builds a desktop trivia game that chooses questions based on the
+selected destination country. It also records session statistics and stores
+them locally in JSON form so progress can be remembered between runs.
 """
 
 from __future__ import annotations 
@@ -13,7 +13,7 @@ import random
 import time
 import tkinter as tk
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from tkinter import messagebox
 
 # --- CONSTANTS (Paint Palette) ---
@@ -101,8 +101,10 @@ QUESTION_BANK = {
 }
 
 def create_default_global_stats() -> dict:
-    """
-    Generate a fresh, empty dictionary for tracking game statistics.
+    """Create the default statistics structure used by the game.
+
+    Returns:
+        dict: A fresh dictionary containing zeroed counters and empty lists.
     """
     return {
         "sessions_played": 0,
@@ -115,25 +117,64 @@ def create_default_global_stats() -> dict:
     }
 
 class StatsRepository:
-    """
-    Handles persistence and validation of game statistics.
-    Responsible for loading from and saving to the JSON file.
+    """Load, validate, and save the game's long-term statistics.
+
+    This class is responsible for data storage only. It does not know anything
+    about screens, buttons, or quiz logic. That separation keeps the code easier
+    for beginners to understand and maintain.
     """
 
     def __init__(self, stats_file_path: Path) -> None:
+        """Store the file path that points to the JSON statistics file.
+
+        Args:
+            stats_file_path: The location where statistics should be loaded
+                from and saved to.
+
+        Returns:
+            None.
+        """
         self.stats_file_path = stats_file_path
 
     def _non_negative_int(self, value: object) -> int:
+        """Validate that a value is a non-negative integer.
+
+        Args:
+            value: The value to check.
+
+        Returns:
+            int: The validated integer value.
+
+        Raises:
+            ValueError: If the value is not a non-negative integer.
+        """
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError("Expected a non-negative integer.")
         return value
 
     def _non_negative_float(self, value: object) -> float:
+        """Validate that a value is a non-negative number.
+
+        Args:
+            value: The value to check.
+
+        Returns:
+            float: The validated numeric value.
+
+        Raises:
+            ValueError: If the value is not a non-negative number.
+        """
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
             raise ValueError("Expected a non-negative number.")
         return float(value)
 
     def load(self) -> dict:
+        """Load statistics from disk and validate their shape.
+
+        Returns:
+            dict: A valid statistics dictionary. If loading fails, the default
+            structure is returned instead.
+        """
         default_stats = create_default_global_stats()
 
         if not self.stats_file_path.exists():
@@ -179,23 +220,48 @@ class StatsRepository:
             return default_stats
 
     def save(self, stats: dict) -> None:
+        """Write the current statistics dictionary to disk.
+
+        Args:
+            stats: The statistics data to serialise as JSON.
+
+        Returns:
+            None.
+        """
         try:
             self.stats_file_path.write_text(json.dumps(stats, indent=2), encoding="utf-8")
         except OSError as exc:
             messagebox.showerror("Statistics File Error", f"Could not save historical statistics.\n{exc}")
 
 class GameSession:
-    """
-    Encapsulates the state of a single game session (per-round state).
-    Tracks questions, answers, timing, and score for the current game.
+    """Store the state and scoring rules for one quiz round.
+
+    This class contains the game logic for a single play-through. It does not
+    draw the interface; it simply tracks questions, answers, timing, and score.
+    That means the UI can ask this object what should happen next without mixing
+    the logic into the screen code.
     """
 
     def __init__(self, questions: list, difficulty: str, total_questions: int, timer_by_mode: dict) -> None:
+        """Prepare a new quiz session.
+
+        Args:
+            questions: The list of question dictionaries chosen for this game.
+            difficulty: The difficulty level selected by the player.
+            total_questions: The number of questions to ask in this session.
+            timer_by_mode: A lookup table mapping difficulty names to time
+                limits.
+
+        Returns:
+            None.
+        """
         self.questions = questions
         self.difficulty = difficulty
         self.total_questions = total_questions
         self.timer_by_mode = timer_by_mode
 
+        # self means "this exact GameSession object"; each session keeps its own
+        # progress so the UI can update without using global variables.
         self.current_index = 0
         self.correct_answers = 0
         self.incorrect_answers = 0
@@ -206,6 +272,14 @@ class GameSession:
         self.awaiting_next = False
 
     def start(self) -> None:
+        """Reset the session so a new run starts from question one.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.current_index = 0
         self.correct_answers = 0
         self.incorrect_answers = 0
@@ -216,14 +290,40 @@ class GameSession:
         self.awaiting_next = False
 
     def is_finished(self) -> bool:
+        """Check whether every question in the session has been answered.
+
+        Args:
+            None.
+
+        Returns:
+            bool: True when there are no more questions left.
+        """
         return self.current_index >= len(self.questions)
 
     def get_current_question(self) -> dict:
+        """Return the question dictionary for the current position.
+
+        Args:
+            None.
+
+        Returns:
+            dict: The active question, or an empty dictionary if the session is
+            already finished.
+        """
         if self.is_finished():
             return {}
         return self.questions[self.current_index]
 
     def record_answer(self, answer_duration: float, is_correct: bool) -> None:
+        """Record an answer time and update the score counters.
+
+        Args:
+            answer_duration: How long the player took to answer in seconds.
+            is_correct: Whether the selected answer was correct.
+
+        Returns:
+            None.
+        """
         self.answer_times.append(answer_duration)
         if is_correct:
             self.correct_answers += 1
@@ -231,35 +331,88 @@ class GameSession:
             self.incorrect_answers += 1
 
     def move_to_next(self) -> None:
+        """Advance the session pointer to the next question.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.current_index += 1
 
     def get_session_elapsed(self) -> float:
+        """Measure how long the session has been running.
+
+        Args:
+            None.
+
+        Returns:
+            float: The elapsed time in seconds.
+        """
         return time.time() - self.session_started_at
 
     def get_current_timer_seconds(self) -> int:
+        """Look up the time limit for the selected difficulty.
+
+        Args:
+            None.
+
+        Returns:
+            int: The number of seconds allowed for each question.
+        """
         return self.timer_by_mode[self.difficulty]
 
     def calculate_win_status(self) -> bool:
+        """Decide whether the player has won the session.
+
+        Args:
+            None.
+
+        Returns:
+            bool: True when the player has reached the required correct-answer
+            threshold.
+        """
         wins_required = (len(self.questions) * 3 + 4) // 5
         return self.correct_answers >= wins_required
 
     def get_fastest_answer(self) -> float | None:
+        """Find the quickest answer recorded in the session.
+
+        Args:
+            None.
+
+        Returns:
+            float | None: The fastest recorded answer time, or None if the
+            player has not answered yet.
+        """
         return min(self.answer_times) if self.answer_times else None
 
 class TriviaGame:
-    """
-    The main UI Manager.
-    
-    This class handles the creation of the graphical window and the flow of the 
-    screens, relying on GameSession for logic and StatsRepository for data.
+    """Manage the tkinter user interface and game flow.
+
+    This is the presentation layer. It creates windows, labels, buttons, and
+    menus, then asks GameSession for gameplay state and StatsRepository for
+    saved data. Keeping those responsibilities separate is a simple example of
+    separation of concerns.
     """
 
     def __init__(self) -> None:
+        """Create the main window and prepare the game state.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.root = tk.Tk()
         self.root.title("Geo-Aware Flight Trivia")
         self.root.geometry("980x640")
         self.root.configure(bg=LIGHT_BG)
 
+        # This frame acts like the stage for the app. Each screen clears it and
+        # rebuilds the contents inside the same main window.
         self.main_frame = tk.Frame(self.root, bg=LIGHT_BG, padx=30, pady=30)
         self.main_frame.pack(fill="both", expand=True)
 
@@ -281,23 +434,44 @@ class TriviaGame:
         self.body_font = ("Helvetica", 13)
         self.button_font = ("Helvetica", 12, "bold")
 
-        # Dependency Injection & Encapsulation: Use objects instead of global variables
+        # Dependency injection and encapsulation: the UI asks the repository for
+        # data instead of reading files directly, which keeps responsibilities tidy.
         self.stats_repo = StatsRepository(STATS_FILE_PATH)
         self.global_stats = self.stats_repo.load()
-        self.stats_repo.save(self.global_stats) # Ensure file is created on first run
+        self.stats_repo.save(self.global_stats)  # Create the stats file on first run.
         
         self.show_welcome_screen()
 
     # --- UI Helper Methods (DRY Principle) ---
-    def _create_action_button(self, parent, text: str, command: Optional[Callable[..., None]] = None, is_primary: bool = True, **kwargs) -> tk.Button:
-        """Helper to create buttons with consistent theme styling to avoid redundant code."""
+    def _create_action_button(self, parent, text: str, command: Optional[Callable[[], None]] = None, is_primary: bool = True, **kwargs) -> tk.Button:
+        """Create a themed button without repeating styling code.
+
+        Args:
+            parent: The tkinter container that will hold the button.
+            text: The label shown on the button.
+            command: The function to run when the button is clicked.
+            is_primary: Whether the button should use the primary colour scheme.
+            **kwargs: Extra tkinter button options such as width, padx, or pady.
+
+        Returns:
+            tk.Button: The newly created button widget.
+        """
         bg_color = NAVY if is_primary else RED
         active_bg = RED if is_primary else NAVY
         
-        # Only include the command kwarg when a callable is provided to satisfy static type checkers
-        btn_kwargs = dict(text=text, bg=bg_color, fg=WHITE,
-                          activebackground=active_bg, activeforeground=WHITE,
-                          font=self.button_font, relief="flat", **kwargs)
+        # This helper originally packed mixed values into one loosely typed dict,
+        # which confused the type checker even though tkinter accepted it at runtime.
+        # Using Any here keeps the button options flexible without changing the UI.
+        btn_kwargs: dict[str, Any] = dict(
+            text=text,
+            bg=bg_color,
+            fg=WHITE,
+            activebackground=active_bg,
+            activeforeground=WHITE,
+            font=self.button_font,
+            relief="flat",
+            **kwargs,
+        )
         if command is not None:
             btn_kwargs["command"] = command
 
@@ -305,7 +479,16 @@ class TriviaGame:
         return btn
 
     def _render_stats_panel(self, parent: tk.Widget, lines: list, padx_val: int = 110) -> None:
-        """Helper to render the white data-display panels on statistics screens."""
+        """Draw a simple white panel containing stacked statistics lines.
+
+        Args:
+            parent: The tkinter container that will hold the panel.
+            lines: The text lines to show inside the panel.
+            padx_val: Horizontal padding used when placing the panel.
+
+        Returns:
+            None.
+        """
         stats_panel = tk.Frame(parent, bg=WHITE, padx=22, pady=20)
         stats_panel.pack(fill="x", padx=padx_val, pady=(4, 16))
         for line in lines:
@@ -315,6 +498,14 @@ class TriviaGame:
             ).pack(fill="x", pady=3)
 
     def clear_screen(self) -> None:
+        """Remove the current screen and cancel any running timer.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         if self.active_timer_job is not None:
             self.root.after_cancel(self.active_timer_job)
             self.active_timer_job = None
@@ -323,6 +514,14 @@ class TriviaGame:
             widget.destroy()
 
     def show_welcome_screen(self) -> None:
+        """Display the starting screen where the player chooses a route.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.clear_screen()
 
         tk.Label(self.main_frame, text="Geo-Aware Flight Trivia", bg=LIGHT_BG, fg=NAVY, font=self.title_font).pack(pady=(10, 18))
@@ -331,6 +530,7 @@ class TriviaGame:
         form_frame = tk.Frame(self.main_frame, bg=WHITE, bd=0, padx=26, pady=24)
         form_frame.pack(pady=10)
 
+        # grid() lays widgets out in rows and columns, like a little table.
         tk.Label(form_frame, text="Country of Origin:", bg=WHITE, fg=NAVY, font=self.body_font, anchor="w", width=20).grid(row=0, column=0, sticky="w", padx=(0, 12), pady=10)
         origin_menu = tk.OptionMenu(form_frame, self.origin_var, *self.country_options)
         origin_menu.config(font=self.body_font, width=24, bg=WHITE, fg=NAVY, activebackground=LIGHT_BG, activeforeground=NAVY, relief="groove", highlightthickness=0)
@@ -357,6 +557,14 @@ class TriviaGame:
         ).pack(side="bottom", pady=(12, 6))
 
     def validate_route_inputs(self) -> None:
+        """Check the selected countries before moving to the next screen.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         origin = self.origin_var.get().strip()
         destination = self.destination_var.get().strip()
 
@@ -376,7 +584,14 @@ class TriviaGame:
         self.show_difficulty_screen()
 
     def _generate_history_summary_lines(self) -> list[str]:
-        """Helper to compute historical string logic for use in multiple screens."""
+        """Build the text lines that summarise the stored statistics.
+
+        Args:
+            None.
+
+        Returns:
+            list[str]: Ready-to-display summary strings.
+        """
         sessions_played = self.global_stats["sessions_played"]
         wins = self.global_stats["wins"]
         losses = self.global_stats["losses"]
@@ -398,6 +613,14 @@ class TriviaGame:
         ]
 
     def show_historical_statistics_screen(self) -> None:
+        """Display the long-term statistics screen.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.clear_screen()
 
         tk.Label(self.main_frame, text="Historical Statistics", bg=LIGHT_BG, fg=NAVY, font=self.title_font).pack(pady=(12, 18))
@@ -418,6 +641,14 @@ class TriviaGame:
         self._create_action_button(self.main_frame, "Back", self.show_welcome_screen, width=14).pack()
 
     def show_difficulty_screen(self) -> None:
+        """Ask the player to choose Easy or Hard.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.clear_screen()
 
         tk.Label(self.main_frame, text=f"Route: {self.origin_var.get().strip()} \u2192 {self.destination_var.get().strip()}", bg=LIGHT_BG, fg=NAVY, font=self.header_font).pack(pady=(20, 18))
@@ -432,6 +663,14 @@ class TriviaGame:
         tk.Button(self.main_frame, text="Back", bg=WHITE, fg=NAVY, width=12, font=self.body_font, relief="groove", command=self.show_welcome_screen).pack(pady=(30, 0))
 
     def start_game(self, difficulty: str) -> None:
+        """Create a new GameSession and move to the quiz screen.
+
+        Args:
+            difficulty: The chosen quiz difficulty.
+
+        Returns:
+            None.
+        """
         if difficulty not in ("Easy", "Hard"):
             messagebox.showerror("Selection Error", "Please choose a valid difficulty.")
             return
@@ -451,6 +690,14 @@ class TriviaGame:
         self.load_question()
 
     def show_trivia_screen(self) -> None:
+        """Build the quiz screen with a timer, question, and answer buttons.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.clear_screen()
 
         top_bar = tk.Frame(self.main_frame, bg=LIGHT_BG)
@@ -475,6 +722,14 @@ class TriviaGame:
         self.feedback_label.pack(pady=(16, 0))
 
     def load_question(self) -> None:
+        """Show the current question and start the countdown timer.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         if self.session is None or self.session.is_finished():
             self.finish_game()
             return
@@ -497,6 +752,14 @@ class TriviaGame:
         self.update_timer()
 
     def update_timer(self) -> None:
+        """Update the visible countdown once per second.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         if self.session is None:
             return
         self.timer_label.config(text=f"Time: {self.session.remaining_seconds}s")
@@ -505,10 +768,20 @@ class TriviaGame:
             self.handle_timeout()
             return
 
+        # after() asks tkinter to call this method again later, which is how
+        # the countdown keeps moving without freezing the window.
         self.session.remaining_seconds -= 1
         self.active_timer_job = self.root.after(1000, self.update_timer)
 
     def select_answer(self, selected_option: str) -> None:
+        """Handle a player's chosen answer.
+
+        Args:
+            selected_option: The answer text selected by the player.
+
+        Returns:
+            None.
+        """
         if self.session is None or self.session.awaiting_next or self.session.is_finished():
             return
 
@@ -535,6 +808,14 @@ class TriviaGame:
         self.active_timer_job = self.root.after(2200, self.move_to_next_question)
 
     def handle_timeout(self) -> None:
+        """Record a missed question when the timer reaches zero.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         if self.session is None or self.session.awaiting_next or self.session.is_finished():
             return
 
@@ -549,12 +830,28 @@ class TriviaGame:
         self.active_timer_job = self.root.after(2200, self.move_to_next_question)
 
     def move_to_next_question(self) -> None:
+        """Advance to the next question or finish the session.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.active_timer_job = None
         if self.session is not None:
             self.session.move_to_next()
         self.load_question()
 
     def finish_game(self) -> None:
+        """Save the session results and show the summary screen.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         if self.session is None:
             return
             
@@ -583,6 +880,15 @@ class TriviaGame:
         self.show_statistics_screen(session_elapsed, session_won)
 
     def show_statistics_screen(self, session_elapsed: float, session_won: bool) -> None:
+        """Display the results for the session that just ended.
+
+        Args:
+            session_elapsed: How long the finished session took.
+            session_won: Whether the player met the win condition.
+
+        Returns:
+            None.
+        """
         self.clear_screen()
 
         headline = "Great Flight! You Won!" if session_won else "Good Try! You Lost!"
@@ -624,6 +930,14 @@ class TriviaGame:
         self._create_action_button(action_row, "Exit", self.root.destroy, is_primary=False, width=14).pack(side="left", padx=10)
 
     def run(self) -> None:
+        """Start tkinter's event loop so the window becomes interactive.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         self.root.mainloop()
 
 if __name__ == "__main__":
