@@ -1,0 +1,19 @@
+{
+  "sessions_played": 0,
+  "wins": 0,
+  "losses": 0,
+  "correct_by_country": {
+    "Brazil": 0,
+    "Nigeria": 0,
+    "UK": 0,
+    "Mexico": 0
+  },
+  "incorrect_by_country": {
+    "Brazil": 0,
+    "Nigeria": 0,
+    "UK": 0,
+    "Mexico": 0
+  },
+  "elapsed_times": [],
+  "quickest_answer_time": null
+}
